@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from 'react'
 import { saveCalculation } from '@/app/actions/calculations'
+import { authClient } from '@/lib/auth-client'
 import {
   ArrowDownToLine,
   ArrowRight,
@@ -37,17 +38,20 @@ const calculators = [
   { id: 'self-employed' as CalculatorId, label: 'Самоосигуряване', description: 'Авансови вноски и изравняване', icon: ShieldCheck },
 ]
 
-const recent = [
-  { name: 'Нетна заплата', date: 'Днес, 10:42', amount: '1 842.40 €', type: 'Заплати' },
-  { name: 'ДДС върху фактура', date: 'Вчера, 16:18', amount: '240.00 €', type: 'ДДС' },
-  { name: 'Превалутиране', date: '12 юни 2025', amount: '1 955.83 лв.', type: 'Валута' },
-]
+type HistoryItem = {
+  id: number
+  title: string
+  type: string
+  inputs: unknown
+  result: unknown
+  createdAt: Date
+}
 
 function formatMoney(value: number, currency = '€') {
   return `${value.toLocaleString('bg-BG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currency}`
 }
 
-export function TaxDashboard() {
+export function TaxDashboard({ user, initialHistory }: { user: { name: string; email: string }; initialHistory: HistoryItem[] }) {
   const [active, setActive] = useState<CalculatorId>('salary')
   const [mobileOpen, setMobileOpen] = useState(false)
   const [gross, setGross] = useState('2400')
@@ -67,6 +71,7 @@ export function TaxDashboard() {
   const [notificationsOpen, setNotificationsOpen] = useState(false)
   const [showAllHistory, setShowAllHistory] = useState(false)
   const [reminderAdded, setReminderAdded] = useState(false)
+  const [history, setHistory] = useState(initialHistory)
 
   const salary = useMemo(() => {
     const grossValue = Number(gross) || 0
@@ -91,10 +96,19 @@ export function TaxDashboard() {
   const interest = useMemo(() => { const days = Math.max(0, Math.ceil((new Date(interestTo).getTime() - new Date(interestFrom).getTime()) / 86400000)); const principal = Number(interestPrincipal) || 0; const rate = Number(interestRate) || 0; return { days, amount: principal * rate / 100 * days / 365, total: principal + principal * rate / 100 * days / 365 } }, [interestPrincipal, interestRate, interestFrom, interestTo])
   const vehicle = useMemo(() => { const kw = Number(vehicleKw) || 0; const base = kw <= 55 ? 0.34 * kw : kw <= 74 ? 0.54 * kw : kw <= 110 ? 1.21 * kw : 2.42 * kw; const eco = vehicleCategory === 'Euro 6' ? 0.5 : vehicleCategory === 'Euro 5' ? 0.6 : vehicleCategory === 'Euro 4' ? 0.8 : 1; return base * eco }, [vehicleKw, vehicleCategory])
   const selfEmployed = useMemo(() => { const income = Number(selfIncome) || 0; const contributions = income * (Number(selfRate) || 0) / 100; return { monthly: contributions, annual: contributions * 12, finalTaxBase: income * 12 * 0.9 } }, [selfIncome, selfRate])
-  async function handleSave(type: string, title: string, inputs: Record<string, unknown>, result: Record<string, unknown>) { try { await saveCalculation({ type, title, inputs, result }); setSaved(true); setTimeout(() => setSaved(false), 2500) } catch { window.location.href = '/sign-in' } }
+  async function handleSave(type: string, title: string, inputs: Record<string, unknown>, result: Record<string, unknown>) { try { await saveCalculation({ type, title, inputs, result }); setHistory((items) => [{ id: Date.now(), title, type, inputs, result, createdAt: new Date() }, ...items]); setSaved(true); setTimeout(() => setSaved(false), 2500) } catch { window.location.href = '/sign-in' } }
   const activeCalculator = calculators.find((item) => item.id === active) ?? calculators[0]
   const ActiveIcon = activeCalculator.icon
-  const visibleHistory = showAllHistory ? recent : recent.slice(0, 3)
+  const visibleHistory = showAllHistory ? history : history.slice(0, 3)
+  const displayName = user.name || user.email.split('@')[0]
+  const historyLabel = (type: string) => ({ salary: 'Заплати', vat: 'ДДС', currency: 'Валута', 'late-interest': 'Лихва към НАП', vehicle: 'Данък МПС', 'self-employed': 'Самоосигуряване' }[type] ?? type)
+  const historyAmount = (item: HistoryItem) => {
+    const result = item.result && typeof item.result === 'object' ? item.result as Record<string, unknown> : {}
+    const value = result.net ?? result.converted ?? result.amount ?? result.annualTax ?? result.monthly
+    return typeof value === 'number' ? formatMoney(value, item.type === 'currency' ? '€' : 'лв.') : '—'
+  }
+  const historyDate = (date: Date) => new Intl.DateTimeFormat('bg-BG', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(date))
+  const signOut = async () => { await authClient.signOut(); window.location.href = '/sign-in' }
   const scrollTo = (id: string) => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth' })
   const exportResult = (title: string, result: unknown) => {
     const blob = new Blob([JSON.stringify({ title, result, exportedAt: new Date().toISOString() }, null, 2)], { type: 'application/json' })
@@ -121,20 +135,20 @@ export function TaxDashboard() {
             <div><p className="text-[19px] font-bold tracking-[-.03em]">DanTax</p><p className="hidden text-[10px] font-semibold uppercase tracking-[.16em] text-[#8a96a8] sm:block">Финансови калкулатори</p></div>
           </div>
           <div className="hidden items-center gap-8 text-sm font-medium text-[#69778b] lg:flex"><button onClick={() => scrollTo('calculators')} className="text-[#155eef]">Калкулатори</button><button onClick={() => scrollTo('history')}>История</button><button onClick={() => scrollTo('deadlines')}>Срокове</button></div>
-          <div className="relative flex items-center gap-3"><button onClick={() => setNotificationsOpen(!notificationsOpen)} className="relative rounded-lg p-2 text-[#718096] hover:bg-[#f4f7fb]" aria-label="Известия"><Bell className="size-5" /><span className="absolute right-1 top-1 size-2 rounded-full bg-[#f04438] ring-2 ring-white" /></button>{notificationsOpen && <div className="absolute right-0 top-12 z-30 w-64 rounded-xl border border-[#e3e8ef] bg-white p-4 text-sm shadow-xl"><p className="font-bold">Известия</p><p className="mt-2 text-xs text-[#718096]">Нямаш нови известия.</p></div>}<button onClick={() => setProfileOpen(!profileOpen)} className="hidden items-center gap-2 rounded-lg border border-[#e3e8ef] px-3 py-2 text-sm font-semibold text-[#506075] sm:flex"><UserRound className="size-4" /> Моят профил <ChevronDown className="size-3.5" /></button>{profileOpen && <div className="absolute right-0 top-12 z-30 w-48 rounded-xl border border-[#e3e8ef] bg-white p-2 text-sm shadow-xl"><button onClick={() => scrollTo('history')} className="w-full rounded-lg px-3 py-2 text-left hover:bg-[#f4f7fb]">История</button><button onClick={() => window.location.href = '/sign-in'} className="w-full rounded-lg px-3 py-2 text-left hover:bg-[#f4f7fb]">Вход / профил</button></div>}</div>
+          <div className="relative flex items-center gap-3"><button onClick={() => setNotificationsOpen(!notificationsOpen)} className="relative rounded-lg p-2 text-[#718096] hover:bg-[#f4f7fb]" aria-label="Известия"><Bell className="size-5" /><span className="absolute right-1 top-1 size-2 rounded-full bg-[#f04438] ring-2 ring-white" /></button>{notificationsOpen && <div className="absolute right-0 top-12 z-30 w-64 rounded-xl border border-[#e3e8ef] bg-white p-4 text-sm shadow-xl"><p className="font-bold">Известия</p><p className="mt-2 text-xs text-[#718096]">Нямаш нови известия.</p></div>}<button onClick={() => setProfileOpen(!profileOpen)} className="hidden items-center gap-2 rounded-lg border border-[#e3e8ef] px-3 py-2 text-sm font-semibold text-[#506075] sm:flex"><UserRound className="size-4" /> Моят профил <ChevronDown className="size-3.5" /></button>{profileOpen && <div className="absolute right-0 top-12 z-30 w-48 rounded-xl border border-[#e3e8ef] bg-white p-2 text-sm shadow-xl"><button onClick={() => scrollTo('history')} className="w-full rounded-lg px-3 py-2 text-left hover:bg-[#f4f7fb]">История</button><button onClick={signOut} className="w-full rounded-lg px-3 py-2 text-left hover:bg-[#f4f7fb]">Изход</button></div>}</div>
         </div>
       </header>
 
       <div className="mx-auto flex max-w-[1440px]">
         <aside className={`${mobileOpen ? 'block' : 'hidden'} fixed inset-x-0 top-[76px] z-10 bg-white p-5 shadow-lg lg:static lg:block lg:w-[286px] lg:shrink-0 lg:bg-transparent lg:p-8 lg:pr-5 lg:shadow-none`}>
-          <div className="mb-7"><p className="mb-3 px-3 text-[11px] font-bold uppercase tracking-[.14em] text-[#9aa6b7]">Работно пространство</p><button className="flex w-full items-center justify-between rounded-xl border border-[#dce6f5] bg-white px-3.5 py-3 text-left shadow-sm"><span><span className="block text-sm font-semibold">Личен профил</span><span className="block text-xs text-[#8a96a8]">Иван Петров</span></span><ChevronDown className="size-4 text-[#8a96a8]" /></button></div>
+          <div className="mb-7"><p className="mb-3 px-3 text-[11px] font-bold uppercase tracking-[.14em] text-[#9aa6b7]">Работно пространство</p><button className="flex w-full items-center justify-between rounded-xl border border-[#dce6f5] bg-white px-3.5 py-3 text-left shadow-sm"><span><span className="block text-sm font-semibold">Личен профил</span><span className="block text-xs text-[#8a96a8]">{displayName}</span></span><ChevronDown className="size-4 text-[#8a96a8]" /></button></div>
           <nav id="calculators" className="flex flex-col gap-1.5"><p className="mb-2 px-3 text-[11px] font-bold uppercase tracking-[.14em] text-[#9aa6b7]">Инструменти</p>{calculators.map((item) => { const Icon = item.icon; return <button key={item.id} onClick={() => { setActive(item.id); setMobileOpen(false) }} className={`flex items-center gap-3 rounded-xl px-3 py-3 text-left transition ${active === item.id ? 'bg-[#eaf2ff] text-[#155eef]' : 'text-[#66758a] hover:bg-white hover:text-[#17243a]'}`}><Icon className="size-[18px] shrink-0" /><span className="min-w-0"><span className="block truncate text-[13px] font-semibold">{item.label}</span><span className="block truncate text-[11px] opacity-70">{item.description}</span></span>{active === item.id && <ArrowRight className="ml-auto size-4" />}</button> })}</nav>
           <div className="mt-8 border-t border-[#e5eaf1] pt-6"><button onClick={() => scrollTo('history')} className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-sm font-semibold text-[#66758a] hover:bg-white"><History className="size-[18px]" /> История на изчисленията</button><button onClick={() => { setReminderAdded(true); scrollTo('deadlines') }} className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-sm font-semibold text-[#66758a] hover:bg-white"><Bell className="size-[18px]" /> Моите напомняния</button><button onClick={() => setProfileOpen(true)} className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-sm font-semibold text-[#66758a] hover:bg-white"><Settings2 className="size-[18px]" /> Настройки</button></div>
           <div className="mt-8 rounded-2xl bg-[#17243a] p-4 text-white"><Sparkles className="mb-5 size-5 text-[#7aa7ff]" /><p className="mb-1 text-sm font-bold">Всичко на едно място</p><p className="mb-4 text-xs leading-5 text-[#b2bfd1]">Запазвай изчисления и получавай напомняния за важни срокове.</p><button className="text-xs font-bold text-[#9fc0ff]">Научи повече <ArrowRight className="ml-1 inline size-3" /></button></div>
         </aside>
 
         <main className="min-w-0 flex-1 px-5 py-8 lg:px-10 lg:py-10">
-          <div className="mb-9 flex flex-col justify-between gap-5 md:flex-row md:items-end"><div><p className="mb-2 text-sm font-semibold text-[#155eef]">Добре дошъл, Иван</p><h1 className="text-[30px] font-bold tracking-[-.04em] text-[#17243a] lg:text-[36px]">Сметни. Разбери. Спести.</h1><p className="mt-2 max-w-xl text-sm text-[#718096]">Точни финансови калкулации с актуални правила за България.</p></div><button onClick={() => scrollTo('deadlines')} className="flex w-fit items-center gap-2 rounded-lg border border-[#dce3ec] bg-white px-4 py-2.5 text-sm font-semibold text-[#536277] shadow-sm"><FileText className="size-4" /> Виж сроковете за 2025 <ArrowRight className="size-4" /></button></div>
+          <div className="mb-9 flex flex-col justify-between gap-5 md:flex-row md:items-end"><div><p className="mb-2 text-sm font-semibold text-[#155eef]">Добре дошъл, {displayName}</p><h1 className="text-[30px] font-bold tracking-[-.04em] text-[#17243a] lg:text-[36px]">Сметни. Разбери. Спести.</h1><p className="mt-2 max-w-xl text-sm text-[#718096]">Точни финансови калкулации с актуални правила за България.</p></div><button onClick={() => scrollTo('deadlines')} className="flex w-fit items-center gap-2 rounded-lg border border-[#dce3ec] bg-white px-4 py-2.5 text-sm font-semibold text-[#536277] shadow-sm"><FileText className="size-4" /> Виж сроковете за 2025 <ArrowRight className="size-4" /></button></div>
 
           <section className="grid gap-5 xl:grid-cols-[minmax(0,1.55fr)_minmax(280px,.75fr)]">
             <div className="rounded-2xl border border-[#dce6f5] bg-white p-6 shadow-[0_8px_28px_rgba(35,55,90,.04)] lg:p-8"><div className="mb-7 flex items-start justify-between"><div className="flex items-center gap-3"><div className="flex size-11 items-center justify-center rounded-xl bg-[#eaf2ff] text-[#155eef]"><ActiveIcon className="size-5" /></div><div><h2 className="text-lg font-bold">{activeCalculator.label}</h2><p className="text-xs text-[#8290a4]">{activeCalculator.description}</p></div></div><button onClick={() => exportResult(activeCalculator.label, { active, salary, vat, converted, interest, vehicle, selfEmployed })} className="rounded-lg p-2 text-[#8b98aa] hover:bg-[#f5f7fa]" aria-label="Още опции"><MoreHorizontal className="size-5" /></button></div>
@@ -148,7 +162,7 @@ export function TaxDashboard() {
             <div id="deadlines" className="rounded-2xl border border-[#dce6f5] bg-[#17243a] p-6 text-white shadow-[0_8px_28px_rgba(35,55,90,.08)]"><div className="flex items-center justify-between"><div className="flex size-10 items-center justify-center rounded-xl bg-white/10"><Bell className="size-5 text-[#9fc0ff]" /></div><span className="rounded-full bg-[#294463] px-2.5 py-1 text-[10px] font-bold text-[#bcd2ff]">ПРЕДСТОИ</span></div><p className="mt-7 text-xs font-semibold text-[#9aaec9]">Следващ важен срок</p><h3 className="mt-2 text-[20px] font-bold">Годишна данъчна декларация</h3><div className="mt-5 flex items-end justify-between"><div><p className="text-[30px] font-bold">30 апр</p><p className="text-xs text-[#9aaec9]">Остават 28 дни</p></div><button onClick={() => setReminderAdded(true)} className="rounded-lg bg-white/10 p-2.5 text-white hover:bg-white/15" aria-label="Добави напомняне"><ArrowRight className="size-4" /></button></div><div className="mt-6 border-t border-white/10 pt-4 text-xs text-[#aabbd2]">Добави сроковете към твоите напомняния</div></div>
           </section>
 
-          <section id="history" className="mt-10 rounded-2xl border border-[#e1e7ef] bg-white shadow-[0_8px_28px_rgba(35,55,90,.03)]"><div className="flex flex-col gap-3 border-b border-[#edf0f4] p-6 sm:flex-row sm:items-center sm:justify-between"><div><h2 className="text-lg font-bold">Последни изчисления</h2><p className="mt-1 text-xs text-[#8290a4]">Запазените резултати от твоя профил</p></div><button onClick={() => setShowAllHistory(!showAllHistory)} className="flex items-center gap-2 text-xs font-bold text-[#155eef]">{showAllHistory ? 'Скрий историята' : 'Виж цялата история'} <ArrowRight className="size-3.5" /></button></div><div className="divide-y divide-[#edf0f4]">{visibleHistory.map((item) => <div key={item.name} className="flex items-center justify-between gap-4 px-6 py-4"><div className="flex min-w-0 items-center gap-3"><div className="hidden size-9 items-center justify-center rounded-lg bg-[#f3f6fa] text-[#75859a] sm:flex"><FileText className="size-4" /></div><div className="min-w-0"><p className="truncate text-sm font-semibold">{item.name}</p><p className="mt-0.5 text-[11px] text-[#8a96a8]">{item.type} · {item.date}</p></div></div><div className="flex items-center gap-4"><strong className="whitespace-nowrap text-sm">{item.amount}</strong><button onClick={() => exportResult(item.name, item)} className="rounded-md p-1.5 text-[#9aa6b7] hover:bg-[#f4f7fb]" aria-label={`Експорт на ${item.name}`}><ArrowDownToLine className="size-4" /></button></div></div>)}</div></section>
+          <section id="history" className="mt-10 rounded-2xl border border-[#e1e7ef] bg-white shadow-[0_8px_28px_rgba(35,55,90,.03)]"><div className="flex flex-col gap-3 border-b border-[#edf0f4] p-6 sm:flex-row sm:items-center sm:justify-between"><div><h2 className="text-lg font-bold">Последни изчисления</h2><p className="mt-1 text-xs text-[#8290a4]">Запазените резултати от твоя профил</p></div><button onClick={() => setShowAllHistory(!showAllHistory)} className="flex items-center gap-2 text-xs font-bold text-[#155eef]">{showAllHistory ? 'Скрий историята' : 'Виж цялата история'} <ArrowRight className="size-3.5" /></button></div><div className="divide-y divide-[#edf0f4]">{visibleHistory.length === 0 ? <div className="px-6 py-10 text-center text-sm text-[#8290a4]">Все още няма запазени изчисления.</div> : visibleHistory.map((item) => <div key={item.id} className="flex items-center justify-between gap-4 px-6 py-4"><div className="flex min-w-0 items-center gap-3"><div className="hidden size-9 items-center justify-center rounded-lg bg-[#f3f6fa] text-[#75859a] sm:flex"><FileText className="size-4" /></div><div className="min-w-0"><p className="truncate text-sm font-semibold">{item.title}</p><p className="mt-0.5 text-[11px] text-[#8a96a8]">{historyLabel(item.type)} · {historyDate(item.createdAt)}</p></div></div><div className="flex items-center gap-4"><strong className="whitespace-nowrap text-sm">{historyAmount(item)}</strong><button onClick={() => exportResult(item.title, item)} className="rounded-md p-1.5 text-[#9aa6b7] hover:bg-[#f4f7fb]" aria-label={`Експорт на ${item.title}`}><ArrowDownToLine className="size-4" /></button></div></div>)}</div></section>
           <footer className="mt-10 flex flex-col gap-3 border-t border-[#e1e7ef] py-6 text-xs text-[#8a96a8] sm:flex-row sm:items-center sm:justify-between"><span>© 2025 DanTax · Информацията е с информативна цел.</span><span className="flex gap-4"><a href="#">За нас</a><a href="#">Контакти</a><a href="#">Поверителност</a></span></footer>
         </main>
       </div>
