@@ -2,7 +2,7 @@
 
 import { auth } from '@/lib/auth'
 import { db } from '@/lib/db'
-import { calculations } from '@/lib/db/schema'
+import { calculations, reminders } from '@/lib/db/schema'
 import { desc, eq } from 'drizzle-orm'
 import { headers } from 'next/headers'
 
@@ -21,4 +21,15 @@ export async function saveCalculation(input: { type: string; title: string; inpu
 export async function getCalculations() {
   const userId = await getUserId()
   return db.select().from(calculations).where(eq(calculations.userId, userId)).orderBy(desc(calculations.createdAt)).limit(30)
+}
+
+export async function saveReminder(input: { title: string; dueDate: string; kind: string }) {
+  const userId = await getUserId()
+  await db.insert(reminders).values({ userId, title: input.title, dueDate: new Date(input.dueDate), kind: input.kind })
+  return { ok: true }
+}
+
+export async function getReminders() {
+  const userId = await getUserId()
+  return db.select().from(reminders).where(eq(reminders.userId, userId)).orderBy(desc(reminders.dueDate))
 }

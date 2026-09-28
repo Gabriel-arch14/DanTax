@@ -14,6 +14,8 @@ export const session = pgTable('session', { id: text('id').primaryKey(), expires
 export const account = pgTable('account', { id: text('id').primaryKey(), accountId: text('accountId').notNull(), providerId: text('providerId').notNull(), userId: text('userId').notNull(), accessToken: text('accessToken'), refreshToken: text('refreshToken'), idToken: text('idToken'), accessTokenExpiresAt: timestamp('accessTokenExpiresAt'), refreshTokenExpiresAt: timestamp('refreshTokenExpiresAt'), scope: text('scope'), password: text('password'), createdAt: timestamp('createdAt').notNull().defaultNow(), updatedAt: timestamp('updatedAt').notNull().defaultNow() })
 export const verification = pgTable('verification', { id: text('id').primaryKey(), identifier: text('identifier').notNull(), value: text('value').notNull(), expiresAt: timestamp('expiresAt').notNull(), createdAt: timestamp('createdAt'), updatedAt: timestamp('updatedAt') })
 export const calculations = pgTable('calculations', { id: serial('id').primaryKey(), userId: text('userId').notNull(), type: text('type').notNull(), title: text('title').notNull(), inputs: jsonb('inputs').notNull(), result: jsonb('result').notNull(), createdAt: timestamp('createdAt').notNull().defaultNow() })
+export const reminders = pgTable('reminders', { id: serial('id').primaryKey(), userId: text('user_id').notNull(), title: text('title').notNull(), dueDate: timestamp('due_date').notNull(), kind: text('kind').notNull(), createdAt: timestamp('created_at').notNull().defaultNow() })
 
 export type Calculation = typeof calculations.$inferSelect
+export type Reminder = typeof reminders.$inferSelect
 export type NewCalculation = typeof calculations.$inferInsert
