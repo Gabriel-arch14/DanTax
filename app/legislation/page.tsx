@@ -38,7 +38,7 @@ export default function LegislationPage() {
   return (
     <main className="min-h-screen bg-[#f6f8fb] text-[#17243a]">
       <header className="border-b border-[#e5eaf1] bg-white">
-        <div className="mx-auto flex h-[76px] max-w-[1120px] items-center justify-between px-5 lg:px-8">
+        <div className="mx-auto flex h-16 max-w-[1120px] items-center justify-between gap-3 px-3 sm:px-5 lg:h-[76px] lg:px-8">
           <Link href="/" className="flex items-center gap-3" aria-label="Към началната страница">
             <span className="flex size-10 items-center justify-center rounded-xl bg-[#155eef] text-white shadow-[0_7px_18px_rgba(21,94,239,.22)]"><Calculator className="size-5" /></span>
             <span><span className="block text-[19px] font-bold tracking-[-.03em]">DanTax</span><span className="hidden text-[10px] font-semibold uppercase tracking-[.16em] text-[#8a96a8] sm:block">Финансови калкулатори</span></span>
